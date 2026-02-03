@@ -31,7 +31,12 @@ The built app will be available in `.build/release/MonitorSwitch.app`
    cp -r .build/release/MonitorSwitch.app /Applications/
    ```
 
-2. Launch the app and grant necessary permissions when prompted:
+2. Remove quarantine attribute (required for apps downloaded from GitHub):
+   ```bash
+   xattr -cr /Applications/MonitorSwitch.app
+   ```
+
+3. Launch the app and grant necessary permissions when prompted:
    - **USB Device Access**: Required to monitor USB connections
    - **Display Control**: Required to turn monitor on/off
    - **Accessibility**: May be required for some display control features
