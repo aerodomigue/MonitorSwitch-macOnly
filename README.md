@@ -13,22 +13,16 @@ This app is a refactor of my previous app: https://github.com/aerodomigue/Monito
 
 ## Requirements
 
-- macOS 13.0 or later
-- Swift 5.9 or later
+- macOS 14.0 or later
+- Swift 6.0 or later
 
 ## Building
 
-1. Navigate to the `monitorSwitchUI` directory:
-   ```bash
-   cd monitorSwitchUI
-   ```
+```bash
+./build.sh
+```
 
-2. Run the build script:
-   ```bash
-   ./build.sh
-   ```
-
-3. The built app will be available in `.build/release/MonitorSwitch.app`
+The built app will be available in `.build/release/MonitorSwitch.app`
 
 ## Installation
 
