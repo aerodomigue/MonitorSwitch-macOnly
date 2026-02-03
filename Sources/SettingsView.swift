@@ -433,7 +433,7 @@ struct AboutView: View {
                     .font(.largeTitle)
                     .fontWeight(.bold)
                 
-                Text("Version 2.0")
+                Text("Version 2.1")
                     .font(.headline)
                     .foregroundColor(.secondary)
                 
@@ -449,7 +449,7 @@ struct AboutView: View {
             Spacer()
             
             VStack(spacing: 8) {
-                Text("© 2025 aerodomigue")
+                Text("© 2026 aerodomigue")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
