@@ -454,10 +454,10 @@ struct AboutView: View {
                     .foregroundColor(.secondary)
                 
                 HStack(spacing: 16) {
-                    Link("GitHub", destination: URL(string: "https://github.com/aerodomigue/MonitorSwitch")!)
+                    Link("GitHub", destination: URL(string: "https://github.com/aerodomigue/MonitorSwitch-macOnly")!)
                         .font(.caption)
                     
-                    Link("Issues", destination: URL(string: "https://github.com/aerodomigue/MonitorSwitch/issues")!)
+                    Link("Issues", destination: URL(string: "https://github.com/aerodomigue/MonitorSwitch-macOnly/issues")!)
                         .font(.caption)
                 }
             }

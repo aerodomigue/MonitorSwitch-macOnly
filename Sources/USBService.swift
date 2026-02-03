@@ -31,7 +31,8 @@ class USBService: ObservableObject {
         deviceDisconnectedSubject.eraseToAnyPublisher()
     }
     
-    private var previousDevices: Set<String> = []
+    /// Track devices by stableID (vendorID:productID) to handle port changes (e.g., KVM switches)
+    private var previousDeviceStableIDs: Set<String> = []
     
     deinit {
         stopMonitoring()
@@ -65,27 +66,27 @@ class USBService: ObservableObject {
     @MainActor
     func refreshDevices() async {
         let discoveredDevices = discoverUSBDevices()
-        let currentDeviceIDs = Set(discoveredDevices.map { $0.deviceID })
-        
-        // Find newly connected devices
-        let newDevices = discoveredDevices.filter { !previousDevices.contains($0.deviceID) }
+        let currentStableIDs = Set(discoveredDevices.map { $0.stableID })
+
+        // Find newly connected devices (by stableID to handle port changes)
+        let newDevices = discoveredDevices.filter { !previousDeviceStableIDs.contains($0.stableID) }
         for device in newDevices {
             deviceConnectedSubject.send(device)
         }
-        
-        // Find disconnected devices
-        let disconnectedDeviceIDs = previousDevices.subtracting(currentDeviceIDs)
-        for deviceID in disconnectedDeviceIDs {
-            if let disconnectedDevice = devices.first(where: { $0.deviceID == deviceID }) {
+
+        // Find disconnected devices (by stableID)
+        let disconnectedStableIDs = previousDeviceStableIDs.subtracting(currentStableIDs)
+        for stableID in disconnectedStableIDs {
+            if let disconnectedDevice = devices.first(where: { $0.stableID == stableID }) {
                 var updatedDevice = disconnectedDevice
                 updatedDevice.isConnected = false
                 deviceDisconnectedSubject.send(updatedDevice)
             }
         }
-        
+
         devices = discoveredDevices
         devicesSubject.send(devices)
-        previousDevices = currentDeviceIDs
+        previousDeviceStableIDs = currentStableIDs
     }
     
     private func discoverUSBDevices() -> [USBDevice] {

@@ -72,10 +72,11 @@ class AppState: ObservableObject {
     
     func selectDevice(_ device: USBDevice) {
         selectedDevice = device
-        settingsService.selectedDeviceID = device.deviceID
+        // Save stableID (vendorID:productID) to handle devices reconnecting on different ports
+        settingsService.selectedDeviceID = device.stableID
         saveSettings()
         updateStatusMessage("Selected device: \(device.name)")
-        
+
         // Start monitoring if device is connected
         if device.isConnected {
             startMonitoring()
@@ -118,33 +119,35 @@ class AppState: ObservableObject {
     
     private func handleDeviceConnected(_ device: USBDevice) {
         updateStatusMessage("Device connected: \(device.name)")
-        
+
+        // Compare by stableID to handle devices reconnecting on different ports (KVM switches)
         if let selectedDevice = selectedDevice,
-           selectedDevice.deviceID == device.deviceID {
+           selectedDevice.stableID == device.stableID {
             // Cancel any pending auto turn-on timer since device is back
             autoTurnOnTask?.cancel()
             autoTurnOnTask = nil
-            
+
             startMonitoring()
         }
     }
     
     private func handleDeviceDisconnected(_ device: USBDevice) {
         updateStatusMessage("Device disconnected: \(device.name)")
-        
+
+        // Compare by stableID to handle devices reconnecting on different ports (KVM switches)
         if let selectedDevice = selectedDevice,
-           selectedDevice.deviceID == device.deviceID {
+           selectedDevice.stableID == device.stableID {
             stopMonitoring()
-            
+
             // Turn off monitor IMMEDIATELY
             displayService.turnOff()
             updateStatusMessage("Display turned off - will auto turn on in \(screenOffDelay)s")
-            
+
             // Start timer to turn back on after delay
             autoTurnOnTask = Task {
                 do {
                     try await Task.sleep(nanoseconds: UInt64(screenOffDelay) * 1_000_000_000)
-                    
+
                     // Only turn on if task wasn't cancelled (device didn't reconnect)
                     if !Task.isCancelled {
                         displayService.turnOn()
@@ -190,14 +193,30 @@ class AppState: ObservableObject {
     private func checkForSavedDevice() {
         // Only try to load saved device if no device is currently selected
         guard selectedDevice == nil else { return }
-        
-        let savedDeviceID = settingsService.selectedDeviceID
-        guard !savedDeviceID.isEmpty else { return }
-        
-        // Find the saved device in the current connected devices
-        if let device = connectedDevices.first(where: { $0.deviceID == savedDeviceID }) {
+
+        let savedID = settingsService.selectedDeviceID
+        guard !savedID.isEmpty else { return }
+
+        // Extract stableID from saved ID (handles old format "vendor:product:location" and new format "vendor:product")
+        let savedStableID: String
+        let parts = savedID.split(separator: ":")
+        if parts.count >= 2 {
+            savedStableID = "\(parts[0]):\(parts[1])"
+        } else {
+            savedStableID = savedID
+        }
+
+        // Find the saved device by stableID (handles port changes)
+        if let device = connectedDevices.first(where: { $0.stableID == savedStableID }) {
             selectedDevice = device
+            // Update saved ID to new stableID format
+            settingsService.selectedDeviceID = device.stableID
             updateStatusMessage("Restored saved device: \(device.displayName)")
+
+            // Start monitoring if device is connected
+            if device.isConnected {
+                startMonitoring()
+            }
         }
     }
     

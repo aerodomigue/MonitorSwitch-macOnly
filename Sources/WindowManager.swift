@@ -50,10 +50,10 @@ class WindowManager: NSObject, ObservableObject {
         let hostingController = NSHostingController(rootView: contentView)
         hostingController.view.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
         
-        // Create window
+        // Create window (no miniaturizable - menu bar app should just close)
         settingsWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -116,4 +116,5 @@ extension WindowManager: NSWindowDelegate {
             print("Settings window closed, app hidden from dock")
         }
     }
+
 }

@@ -33,6 +33,12 @@ struct USBDevice: Identifiable, Hashable, Codable {
         }
         return name
     }
+
+    /// Stable identifier based on vendorID:productID only (without locationID)
+    /// Used for matching devices that may reconnect on different ports (e.g., KVM switches)
+    var stableID: String {
+        "\(vendorID):\(productID)"
+    }
     
     static func == (lhs: USBDevice, rhs: USBDevice) -> Bool {
         lhs.deviceID == rhs.deviceID
