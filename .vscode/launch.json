@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:MonitorSwitch}",
+            "name": "Debug MonitorSwitchUI",
+            "program": "${workspaceFolder:MonitorSwitch}/.build/debug/MonitorSwitchUI",
+            "preLaunchTask": "swift: Build Debug MonitorSwitchUI"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:MonitorSwitch}",
+            "name": "Release MonitorSwitchUI",
+            "program": "${workspaceFolder:MonitorSwitch}/.build/release/MonitorSwitchUI",
+            "preLaunchTask": "swift: Build Release MonitorSwitchUI"
+        }
+    ]
+}
