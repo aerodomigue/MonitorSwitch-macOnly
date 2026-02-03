@@ -2,7 +2,7 @@
 //  USBService.swift
 //  MonitorSwitchUI
 //
-//  USB device monitoring service for macOS
+//  USB device monitoring service for macOS using IOKit notifications
 //
 
 import Foundation
@@ -10,59 +10,137 @@ import IOKit
 import IOKit.usb
 import Combine
 
+// Global weak reference for IOKit callbacks (C callbacks can't capture Swift context)
+@MainActor private weak var sharedUSBService: USBService?
+
 @MainActor
 class USBService: ObservableObject {
     @Published private(set) var devices: [USBDevice] = []
-    
+
     private let devicesSubject = CurrentValueSubject<[USBDevice], Never>([])
     private var deviceConnectedSubject = PassthroughSubject<USBDevice, Never>()
     private var deviceDisconnectedSubject = PassthroughSubject<USBDevice, Never>()
-    private var monitoringTimer: Timer?
-    
+
+    // IOKit notification objects
+    private var notificationPort: IONotificationPortRef?
+    private var addedIterator: io_iterator_t = 0
+    private var removedIterator: io_iterator_t = 0
+
     var devicesPublisher: AnyPublisher<[USBDevice], Never> {
         devicesSubject.eraseToAnyPublisher()
     }
-    
+
     var deviceConnectedPublisher: AnyPublisher<USBDevice, Never> {
         deviceConnectedSubject.eraseToAnyPublisher()
     }
-    
+
     var deviceDisconnectedPublisher: AnyPublisher<USBDevice, Never> {
         deviceDisconnectedSubject.eraseToAnyPublisher()
     }
-    
+
     /// Track devices by stableID (vendorID:productID) to handle port changes (e.g., KVM switches)
     private var previousDeviceStableIDs: Set<String> = []
-    
-    deinit {
-        stopMonitoring()
+
+    init() {
+        sharedUSBService = self
     }
-    
+
     func startMonitoring() async {
-        // Stop any existing timer first
-        await MainActor.run {
-            stopMonitoring()
-        }
-        
+        // Clean up any existing notifications
+        cleanupNotifications()
+
+        // Initial device discovery
         await refreshDevices()
-        
-        // Start a timer to periodically check for device changes
-        await MainActor.run {
-            monitoringTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.refreshDevices()
-                }
+
+        // Set up IOKit notifications for instant device detection
+        setupIOKitNotifications()
+    }
+
+    private func setupIOKitNotifications() {
+        // Create notification port
+        guard let port = IONotificationPortCreate(kIOMainPortDefault) else {
+            print("USBService: Failed to create notification port")
+            return
+        }
+        notificationPort = port
+
+        // Add the notification port to the main run loop
+        let runLoopSource = IONotificationPortGetRunLoopSource(port).takeUnretainedValue()
+        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .defaultMode)
+
+        // Set up device ADDED notification
+        if let matchingDict = IOServiceMatching(kIOUSBDeviceClassName) {
+            let result = IOServiceAddMatchingNotification(
+                port,
+                kIOFirstMatchNotification,
+                matchingDict,
+                usbDeviceCallback,
+                nil,
+                &addedIterator
+            )
+
+            if result == KERN_SUCCESS {
+                // Drain iterator to arm the notification
+                drainIterator(addedIterator)
+            } else {
+                print("USBService: Failed to add device added notification: \(result)")
             }
         }
+
+        // Set up device REMOVED notification
+        if let matchingDict = IOServiceMatching(kIOUSBDeviceClassName) {
+            let result = IOServiceAddMatchingNotification(
+                port,
+                kIOTerminatedNotification,
+                matchingDict,
+                usbDeviceCallback,
+                nil,
+                &removedIterator
+            )
+
+            if result == KERN_SUCCESS {
+                // Drain iterator to arm the notification
+                drainIterator(removedIterator)
+            } else {
+                print("USBService: Failed to add device removed notification: \(result)")
+            }
+        }
+
+        print("USBService: IOKit notifications active (instant device detection)")
     }
-    
-    nonisolated func stopMonitoring() {
-        Task { @MainActor in
-            monitoringTimer?.invalidate()
-            monitoringTimer = nil
+
+    private func drainIterator(_ iterator: io_iterator_t) {
+        while case let service = IOIteratorNext(iterator), service != 0 {
+            IOObjectRelease(service)
         }
     }
-    
+
+    private func cleanupNotifications() {
+        if let port = notificationPort {
+            let runLoopSource = IONotificationPortGetRunLoopSource(port).takeUnretainedValue()
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .defaultMode)
+            IONotificationPortDestroy(port)
+            notificationPort = nil
+        }
+
+        if addedIterator != 0 {
+            IOObjectRelease(addedIterator)
+            addedIterator = 0
+        }
+
+        if removedIterator != 0 {
+            IOObjectRelease(removedIterator)
+            removedIterator = 0
+        }
+    }
+
+    nonisolated func stopMonitoring() {
+        Task { @MainActor in
+            cleanupNotifications()
+            sharedUSBService = nil
+        }
+    }
+
     @MainActor
     func refreshDevices() async {
         let discoveredDevices = discoverUSBDevices()
@@ -88,53 +166,49 @@ class USBService: ObservableObject {
         devicesSubject.send(devices)
         previousDeviceStableIDs = currentStableIDs
     }
-    
+
     private func discoverUSBDevices() -> [USBDevice] {
         var devices: [USBDevice] = []
-        
-        // Create a matching dictionary for USB devices
+
         guard let matchingDict = IOServiceMatching(kIOUSBDeviceClassName) else {
-            print("Failed to create matching dictionary")
+            print("USBService: Failed to create matching dictionary")
             return devices
         }
-        
+
         var iterator: io_iterator_t = 0
         let result = IOServiceGetMatchingServices(kIOMainPortDefault, matchingDict, &iterator)
-        
+
         guard result == KERN_SUCCESS else {
-            print("Failed to get matching services")
+            print("USBService: Failed to get matching services")
             return devices
         }
-        
+
         defer { IOObjectRelease(iterator) }
-        
-        var service: io_service_t = 0
-        while case let nextService = IOIteratorNext(iterator), nextService != 0 {
-            service = nextService
+
+        while case let service = IOIteratorNext(iterator), service != 0 {
             defer { IOObjectRelease(service) }
-            
+
             if let device = createUSBDevice(from: service) {
                 devices.append(device)
             }
         }
-        
+
         return devices
     }
-    
+
     private func createUSBDevice(from service: io_service_t) -> USBDevice? {
-        // Get device properties
         guard let vendorID = getUSBProperty(service: service, key: "idVendor") as? NSNumber,
               let productID = getUSBProperty(service: service, key: "idProduct") as? NSNumber else {
             return nil
         }
-        
+
         let deviceName = getUSBProperty(service: service, key: "USB Product Name") as? String ?? ""
         let locationID = getUSBProperty(service: service, key: "locationID") as? NSNumber ?? NSNumber(value: 0)
-        
+
         let vendorIDString = String(format: "%04x", vendorID.uint16Value)
         let productIDString = String(format: "%04x", productID.uint16Value)
         let deviceID = "\(vendorIDString):\(productIDString):\(locationID.uint32Value)"
-        
+
         return USBDevice(
             deviceID: deviceID,
             name: deviceName,
@@ -143,9 +217,23 @@ class USBService: ObservableObject {
             isConnected: true
         )
     }
-    
+
     private func getUSBProperty(service: io_service_t, key: String) -> Any? {
         let cfKey = key as CFString
         return IORegistryEntryCreateCFProperty(service, cfKey, kCFAllocatorDefault, 0)?.takeRetainedValue()
+    }
+}
+
+// MARK: - IOKit C Callback
+
+private func usbDeviceCallback(_: UnsafeMutableRawPointer?, iterator: io_iterator_t) {
+    // Drain iterator to re-arm notification
+    while case let service = IOIteratorNext(iterator), service != 0 {
+        IOObjectRelease(service)
+    }
+
+    // Refresh devices on main thread via global reference
+    Task { @MainActor in
+        await sharedUSBService?.refreshDevices()
     }
 }
