@@ -68,8 +68,13 @@ enum SettingsTab: CaseIterable {
 
 struct GeneralSettingsView: View {
     @EnvironmentObject var appState: AppState
-    @State private var tempScreenDelay: Double = 10
-    
+    @State private var isCustomInput: Bool = false
+    @State private var customHexString: String = ""
+
+    private var isKnownInput: Bool {
+        DDCService.knownInputs[appState.monitorInputSource] != nil
+    }
+
     var body: some View {
         Form {
             Section("Startup") {
@@ -78,53 +83,147 @@ struct GeneralSettingsView: View {
                     set: { _ in appState.toggleAutoStart() }
                 ))
                 .help("Launch MonitorSwitch automatically when you log in")
-                
+
                 Toggle("Start minimized", isOn: Binding(
                     get: { appState.startMinimized },
                     set: { _ in appState.toggleStartMinimized() }
                 ))
                 .help("Start the app in the menu bar without showing the device selection window")
             }
-            
-            Section("Display Control") {
-                VStack(alignment: .leading, spacing: 8) {
+
+            Section("Monitor Input (DDC-CI)") {
+                VStack(alignment: .leading, spacing: 12) {
+                    #if arch(arm64)
                     HStack {
-                        Text("Screen off delay:")
+                        Text("Target monitor:")
+                        Picker("", selection: Binding(
+                            get: { appState.selectedMonitorID },
+                            set: { appState.updateSelectedMonitorID($0) }
+                        )) {
+                            Text("Auto (first found)").tag("")
+                            ForEach(appState.availableMonitors) { monitor in
+                                Text(monitor.name).tag(monitor.id)
+                            }
+                        }
+                        .frame(width: 250)
+
+                        Button(action: { appState.refreshMonitors() }) {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Refresh the list of external monitors")
+                    }
+                    #endif
+
+                    HStack {
+                        Text("Target input:")
+                        // Use Int16 so we can represent known values + a sentinel for "Custom"
+                        let customSentinel: Int16 = -1
+                        Picker("", selection: Binding<Int16>(
+                            get: {
+                                if isCustomInput || !isKnownInput {
+                                    return customSentinel
+                                }
+                                return Int16(appState.monitorInputSource)
+                            },
+                            set: { newValue in
+                                if newValue == customSentinel {
+                                    isCustomInput = true
+                                    customHexString = String(format: "%02X", appState.monitorInputSource)
+                                } else {
+                                    isCustomInput = false
+                                    appState.updateMonitorInputSource(UInt8(newValue))
+                                }
+                            }
+                        )) {
+                            ForEach(DDCService.sortedInputs, id: \.value) { input in
+                                Text("\(input.name)  (0x\(String(format: "%02X", input.value)))")
+                                    .tag(Int16(input.value))
+                            }
+                            Divider()
+                            Text("Custom…").tag(customSentinel)
+                        }
+                        .frame(width: 220)
+                    }
+                    .onAppear {
+                        if !isKnownInput {
+                            isCustomInput = true
+                            customHexString = String(format: "%02X", appState.monitorInputSource)
+                        }
+                    }
+
+                    if isCustomInput || !isKnownInput {
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text("Custom input value:  0x")
+                                .foregroundColor(.secondary)
+                            TextField("", text: $customHexString)
+                                .frame(width: 20)
+                                .padding(4)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .cornerRadius(4)
+                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(nsColor: .separatorColor)))
+                                .onSubmit {
+                                    if let val = UInt8(customHexString, radix: 16) {
+                                        appState.updateMonitorInputSource(val)
+                                    }
+                                }
+                                .onChange(of: customHexString) { _, newValue in
+                                    let filtered = String(newValue.uppercased().filter { "0123456789ABCDEF".contains($0) }.prefix(3))
+                                    if filtered != customHexString {
+                                        customHexString = filtered
+                                    }
+                                    if let val = UInt8(filtered, radix: 16) {
+                                        appState.updateMonitorInputSource(val)
+                                    }
+                                }
+                        }
+                    }
+
+                    if let detected = appState.currentDetectedInput {
+                        HStack {
+                            Text("Last detected:")
+                            Spacer()
+                            Text(DDCService.inputName(for: detected))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    HStack(spacing: 12) {
+                        Button("Detect Current Input") {
+                            appState.detectCurrentInput()
+                        }
+                        .help("Read the active video input from the monitor via DDC-CI and save it as the target input")
+
+                        Button("Test Input Switch") {
+                            appState.testInputSwitch()
+                        }
+                        .help("Send a DDC-CI command to switch the monitor to the configured input")
+
+                        Button("Scan Inputs") {
+                            appState.scanInputs()
+                        }
+                        .help("Cycle through all inputs so you can identify which one your Mac is connected to")
+
                         Spacer()
-                        Text("\(Int(tempScreenDelay)) seconds")
+
+                        Text(appState.statusMessage)
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                    
-                    Slider(value: $tempScreenDelay, in: 1...60, step: 1) {
-                        Text("Screen off delay")
+                    .sheet(isPresented: $appState.isScanning, onDismiss: {
+                        appState.stopScanningInputs()
+                    }) {
+                        InputScannerSheet()
+                            .environmentObject(appState)
                     }
-                    .onChange(of: tempScreenDelay) { _, newValue in
-                        appState.updateScreenDelay(Int(newValue))
-                    }
-                    
-                    Text("Time to wait before turning off the screen when the selected device is disconnected")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                HStack {
-                    Button("Test Screen Control") {
-                        appState.testScreenControl()
-                    }
-                    .help("Turn the screen off for 1 second, then back on")
-                    
-                    Spacer()
-                    
-                    Text(appState.statusMessage)
+
+                    Text("Select the input your Mac is connected to, or press Detect to read it from the monitor. When your USB device connects, the monitor will automatically switch to this input.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
         }
         .formStyle(.grouped)
-        .onAppear {
-            tempScreenDelay = Double(appState.screenOffDelay)
-        }
         .padding()
     }
 }
@@ -433,7 +532,7 @@ struct AboutView: View {
                     .font(.largeTitle)
                     .fontWeight(.bold)
                 
-                Text("Version 2.1")
+                Text("Version 2.2")
                     .font(.headline)
                     .foregroundColor(.secondary)
                 
@@ -464,6 +563,51 @@ struct AboutView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct InputScannerSheet: View {
+    @EnvironmentObject var appState: AppState
+
+    private var inputs: [MonitorInput] { DDCService.sortedInputs }
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Text("Scanning Inputs")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            if appState.scanningInputIndex < inputs.count {
+                let current = inputs[appState.scanningInputIndex]
+                VStack(spacing: 8) {
+                    Text(current.name)
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                    Text("\(appState.scanningInputIndex + 1) of \(inputs.count)")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Text("When your Mac's screen appears, click \"Use This Input\".")
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+
+            HStack(spacing: 16) {
+                Button("Use This Input") {
+                    appState.confirmScannedInput()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Button("Stop Scanning") {
+                    appState.stopScanningInputs()
+                }
+                .controlSize(.large)
+            }
+        }
+        .padding(40)
+        .frame(width: 400)
     }
 }
 

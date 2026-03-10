@@ -80,8 +80,8 @@ struct MenuBarView: View {
             
             // Quick actions
             if appState.selectedDevice != nil {
-                Button("Test Screen Control") {
-                    appState.testScreenControl()
+                Button("Test Input Switch") {
+                    appState.testInputSwitch()
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(.primary)

@@ -13,15 +13,26 @@ let package = Package(
         )
     ],
     dependencies: [
-        // Add any dependencies here
+        .package(url: "https://github.com/waydabber/AppleSiliconDDC.git", branch: "main")
     ],
     targets: [
+        .target(
+            name: "CDDCBridge",
+            path: "Sources/CDDCBridge",
+            linkerSettings: [
+                .linkedFramework("IOKit")
+            ]
+        ),
         .executableTarget(
             name: "MonitorSwitchUI",
-            dependencies: [],
+            dependencies: ["CDDCBridge", "AppleSiliconDDC"],
             path: "Sources",
+            exclude: ["CDDCBridge"],
             resources: [
                 .copy("Resources")
+            ],
+            linkerSettings: [
+                .linkedFramework("CoreDisplay")
             ]
         )
     ]
