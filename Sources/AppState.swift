@@ -36,6 +36,7 @@ class AppState: ObservableObject {
 
     private var startupReady = false
     private var cancellables = Set<AnyCancellable>()
+    private var lastDDCTask: Task<Void, Never>?
 
     init() {
         setupBindings()
@@ -124,10 +125,30 @@ class AppState: ObservableObject {
 
     #if arch(arm64)
     func refreshMonitors() {
-        Task.detached { [ddcService] in
-            let monitors = ddcService.listExternalMonitors()
-            await MainActor.run { [self] in
-                availableMonitors = monitors
+        let ddc = ddcService
+        let previous = lastDDCTask
+        lastDDCTask = Task.detached { [weak self] in
+            await previous?.value
+            let monitors: [ExternalMonitor]? = await withTaskGroup(of: [ExternalMonitor]?.self) { group in
+                group.addTask {
+                    return ddc.listExternalMonitors()
+                }
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(5))
+                    return nil
+                }
+                if let first = await group.next(), let value = first {
+                    group.cancelAll()
+                    return value
+                }
+                group.cancelAll()
+                LogService.shared.log("DDC timeout: refreshMonitors")
+                return nil
+            }
+            if let monitors {
+                await MainActor.run { [weak self] in
+                    self?.availableMonitors = monitors
+                }
             }
         }
     }
@@ -136,16 +157,16 @@ class AppState: ObservableObject {
     func detectCurrentInput() {
         updateStatusMessage("Detecting current input...")
         let monitorID = selectedMonitorID.isEmpty ? nil : selectedMonitorID
-        Task.detached { [ddcService] in
-            let input = ddcService.readCurrentInput(monitorID: monitorID)
-            await MainActor.run { [self] in
-                if let input {
-                    currentDetectedInput = input
-                    updateMonitorInputSource(input)
-                    updateStatusMessage("Detected: \(DDCService.inputName(for: input))")
-                } else {
-                    updateStatusMessage("Could not read input (select it manually below)")
-                }
+        Task {
+            let input: UInt8? = await enqueueDDCResult("detectCurrentInput") { ddc in
+                ddc.readCurrentInput(monitorID: monitorID) ?? 0
+            }
+            if let input, input != 0 {
+                currentDetectedInput = input
+                updateMonitorInputSource(input)
+                updateStatusMessage("Detected: \(DDCService.inputName(for: input))")
+            } else {
+                updateStatusMessage("Could not read input (select it manually below)")
             }
         }
     }
@@ -154,14 +175,14 @@ class AppState: ObservableObject {
         let input = monitorInputSource
         let monitorID = selectedMonitorID.isEmpty ? nil : selectedMonitorID
         updateStatusMessage("Testing input switch...")
-        Task.detached { [ddcService] in
-            let success = ddcService.switchInput(to: input, monitorID: monitorID)
-            await MainActor.run { [self] in
-                if success {
-                    updateStatusMessage("Input switch sent: \(DDCService.inputName(for: input))")
-                } else {
-                    updateStatusMessage("Input switch failed (DDC-CI not supported?)")
-                }
+        Task {
+            let success: Bool = await enqueueDDCResult("testInputSwitch") { ddc in
+                ddc.switchInput(to: input, monitorID: monitorID)
+            } ?? false
+            if success {
+                updateStatusMessage("Input switch sent: \(DDCService.inputName(for: input))")
+            } else {
+                updateStatusMessage("Input switch failed (DDC-CI not supported?)")
             }
         }
     }
@@ -172,16 +193,16 @@ class AppState: ObservableObject {
         isScanning = true
         scanningInputIndex = 0
         let monitorID = selectedMonitorID.isEmpty ? nil : selectedMonitorID
-        scanTask = Task { [ddcService] in
+        scanTask = Task {
             var index = 0
             while !Task.isCancelled {
                 await MainActor.run { [self] in
                     scanningInputIndex = index
                 }
                 let input = inputs[index]
-                _ = await Task.detached {
-                    ddcService.switchInput(to: input.value, monitorID: monitorID)
-                }.value
+                let _: Bool? = await enqueueDDCResult("scanInputs[\(input.value)]") { ddc in
+                    ddc.switchInput(to: input.value, monitorID: monitorID)
+                }
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 index = (index + 1) % inputs.count
             }
@@ -237,14 +258,14 @@ class AppState: ObservableObject {
         guard switchMode == "connect" || switchMode == "both" else { return }
         let input = monitorInputSource
         let monitorID = selectedMonitorID.isEmpty ? nil : selectedMonitorID
-        Task.detached { [ddcService] in
-            let success = ddcService.switchInput(to: input, monitorID: monitorID)
-            await MainActor.run { [self] in
-                if success {
-                    updateStatusMessage("Switched to \(DDCService.inputName(for: input))")
-                } else {
-                    updateStatusMessage("Monitoring started (input switch failed)")
-                }
+        Task {
+            let success: Bool = await enqueueDDCResult("startMonitoring") { ddc in
+                ddc.switchInput(to: input, monitorID: monitorID)
+            } ?? false
+            if success {
+                updateStatusMessage("Switched to \(DDCService.inputName(for: input))")
+            } else {
+                updateStatusMessage("Monitoring started (input switch failed)")
             }
         }
     }
@@ -262,16 +283,71 @@ class AppState: ObservableObject {
         }
         let input = disconnectInputSource
         let monitorID = selectedMonitorID.isEmpty ? nil : selectedMonitorID
-        Task.detached { [ddcService] in
-            let success = ddcService.switchInput(to: input, monitorID: monitorID)
-            await MainActor.run { [self] in
-                if success {
-                    updateStatusMessage("Switched to \(DDCService.inputName(for: input)) (disconnect)")
-                } else {
-                    updateStatusMessage("Device disconnected (input switch failed)")
-                }
+        Task {
+            let success: Bool = await enqueueDDCResult("stopMonitoring") { ddc in
+                ddc.switchInput(to: input, monitorID: monitorID)
+            } ?? false
+            if success {
+                updateStatusMessage("Switched to \(DDCService.inputName(for: input)) (disconnect)")
+            } else {
+                updateStatusMessage("Device disconnected (input switch failed)")
             }
         }
+    }
+
+    /// Fire-and-forget DDC operation with serialization and 5s timeout.
+    private func enqueueDDC(_ label: String, operation: @escaping @Sendable (DDCService) -> Void) {
+        let ddc = ddcService
+        let previous = lastDDCTask
+        lastDDCTask = Task.detached {
+            await previous?.value
+            await withTaskGroup(of: Bool.self) { group in
+                group.addTask {
+                    operation(ddc)
+                    return true
+                }
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(5))
+                    return false
+                }
+                if let completed = await group.next() {
+                    if !completed {
+                        LogService.shared.log("DDC timeout: \(label)")
+                    }
+                }
+                group.cancelAll()
+            }
+        }
+    }
+
+    /// DDC operation with serialization, 5s timeout, and a return value.
+    private func enqueueDDCResult<T: Sendable>(_ label: String, operation: @escaping @Sendable (DDCService) -> T) async -> T? {
+        let ddc = ddcService
+        let previous = lastDDCTask
+        var result: T?
+        let task: Task<Void, Never> = Task.detached {
+            await previous?.value
+            await withTaskGroup(of: T?.self) { group in
+                group.addTask {
+                    return operation(ddc)
+                }
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(5))
+                    return nil
+                }
+                if let first = await group.next() {
+                    if let value = first {
+                        result = value
+                    } else {
+                        LogService.shared.log("DDC timeout: \(label)")
+                    }
+                }
+                group.cancelAll()
+            }
+        }
+        lastDDCTask = task
+        await task.value
+        return result
     }
 
     private func startServices() {

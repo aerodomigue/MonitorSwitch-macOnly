@@ -23,7 +23,7 @@ struct MonitorInput {
 }
 
 #if arch(arm64)
-struct ExternalMonitor: Identifiable {
+struct ExternalMonitor: Identifiable, @unchecked Sendable {
     let id: String          // "productName:serviceLocation" e.g. "MSI G274QPF-QD:1"
     let name: String        // productName e.g. "MSI G274QPF-QD"
     let service: IOAVService
