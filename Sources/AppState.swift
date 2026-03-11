@@ -18,6 +18,8 @@ class AppState: ObservableObject {
     @Published var monitorInputSource: UInt8 = 0x0F
     @Published var currentDetectedInput: UInt8? = nil
     @Published var selectedMonitorID: String = ""
+    @Published var switchMode: String = "connect"
+    @Published var disconnectInputSource: UInt8 = 0x11
     #if arch(arm64)
     @Published var availableMonitors: [ExternalMonitor] = []
     #endif
@@ -104,6 +106,18 @@ class AppState: ObservableObject {
     func updateSelectedMonitorID(_ id: String) {
         selectedMonitorID = id
         settingsService.selectedMonitorID = id
+        saveSettings()
+    }
+
+    func updateSwitchMode(_ mode: String) {
+        switchMode = mode
+        settingsService.switchMode = mode
+        saveSettings()
+    }
+
+    func updateDisconnectInputSource(_ input: UInt8) {
+        disconnectInputSource = input
+        settingsService.disconnectInputSource = input
         saveSettings()
     }
 
@@ -216,6 +230,7 @@ class AppState: ObservableObject {
     private func startMonitoring() {
         isMonitoring = true
         guard startupReady else { return }
+        guard switchMode == "connect" || switchMode == "both" else { return }
         let input = monitorInputSource
         let monitorID = selectedMonitorID.isEmpty ? nil : selectedMonitorID
         Task.detached { [ddcService] in
@@ -232,7 +247,26 @@ class AppState: ObservableObject {
 
     private func stopMonitoring() {
         isMonitoring = false
-        updateStatusMessage("Device disconnected")
+        guard startupReady else {
+            updateStatusMessage("Device disconnected")
+            return
+        }
+        guard switchMode == "disconnect" || switchMode == "both" else {
+            updateStatusMessage("Device disconnected")
+            return
+        }
+        let input = disconnectInputSource
+        let monitorID = selectedMonitorID.isEmpty ? nil : selectedMonitorID
+        Task.detached { [ddcService] in
+            let success = ddcService.switchInput(to: input, monitorID: monitorID)
+            await MainActor.run { [self] in
+                if success {
+                    updateStatusMessage("Switched to \(DDCService.inputName(for: input)) (disconnect)")
+                } else {
+                    updateStatusMessage("Device disconnected (input switch failed)")
+                }
+            }
+        }
     }
 
     private func startServices() {
@@ -249,6 +283,8 @@ class AppState: ObservableObject {
         startMinimized = settings.startMinimized
         monitorInputSource = settings.monitorInputSource
         selectedMonitorID = settings.selectedMonitorID
+        switchMode = settings.switchMode
+        disconnectInputSource = settings.disconnectInputSource
         #if arch(arm64)
         refreshMonitors()
         #endif

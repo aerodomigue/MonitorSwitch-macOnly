@@ -70,9 +70,15 @@ struct GeneralSettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var isCustomInput: Bool = false
     @State private var customHexString: String = ""
+    @State private var isCustomDisconnectInput: Bool = false
+    @State private var customDisconnectHexString: String = ""
 
     private var isKnownInput: Bool {
         DDCService.knownInputs[appState.monitorInputSource] != nil
+    }
+
+    private var isKnownDisconnectInput: Bool {
+        DDCService.knownInputs[appState.disconnectInputSource] != nil
     }
 
     var body: some View {
@@ -116,66 +122,145 @@ struct GeneralSettingsView: View {
                     #endif
 
                     HStack {
-                        Text("Target input:")
-                        // Use Int16 so we can represent known values + a sentinel for "Custom"
-                        let customSentinel: Int16 = -1
-                        Picker("", selection: Binding<Int16>(
-                            get: {
-                                if isCustomInput || !isKnownInput {
-                                    return customSentinel
-                                }
-                                return Int16(appState.monitorInputSource)
-                            },
-                            set: { newValue in
-                                if newValue == customSentinel {
-                                    isCustomInput = true
-                                    customHexString = String(format: "%02X", appState.monitorInputSource)
-                                } else {
-                                    isCustomInput = false
-                                    appState.updateMonitorInputSource(UInt8(newValue))
-                                }
-                            }
+                        Text("Switch mode:")
+                        Picker("", selection: Binding(
+                            get: { appState.switchMode },
+                            set: { appState.updateSwitchMode($0) }
                         )) {
-                            ForEach(DDCService.sortedInputs, id: \.value) { input in
-                                Text("\(input.name)  (0x\(String(format: "%02X", input.value)))")
-                                    .tag(Int16(input.value))
-                            }
-                            Divider()
-                            Text("Custom…").tag(customSentinel)
+                            Text("On connect").tag("connect")
+                            Text("On disconnect").tag("disconnect")
+                            Text("Both").tag("both")
                         }
-                        .frame(width: 220)
+                        .frame(width: 183)
                     }
-                    .onAppear {
-                        if !isKnownInput {
-                            isCustomInput = true
-                            customHexString = String(format: "%02X", appState.monitorInputSource)
+
+                    if appState.switchMode == "connect" || appState.switchMode == "both" {
+                        HStack {
+                            Text("Input on connect:")
+                            let customSentinel: Int16 = -1
+                            Picker("", selection: Binding<Int16>(
+                                get: {
+                                    if isCustomInput || !isKnownInput {
+                                        return customSentinel
+                                    }
+                                    return Int16(appState.monitorInputSource)
+                                },
+                                set: { newValue in
+                                    if newValue == customSentinel {
+                                        isCustomInput = true
+                                        customHexString = String(format: "%02X", appState.monitorInputSource)
+                                    } else {
+                                        isCustomInput = false
+                                        appState.updateMonitorInputSource(UInt8(newValue))
+                                    }
+                                }
+                            )) {
+                                ForEach(DDCService.sortedInputs, id: \.value) { input in
+                                    Text("\(input.name)  (0x\(String(format: "%02X", input.value)))")
+                                        .tag(Int16(input.value))
+                                }
+                                Divider()
+                                Text("Custom…").tag(customSentinel)
+                            }
+                            .frame(width: 220)
+                        }
+                        .onAppear {
+                            if !isKnownInput {
+                                isCustomInput = true
+                                customHexString = String(format: "%02X", appState.monitorInputSource)
+                            }
+                        }
+
+                        if isCustomInput || !isKnownInput {
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text("Custom connect input:  0x")
+                                    .foregroundColor(.secondary)
+                                TextField("", text: $customHexString)
+                                    .frame(width: 20)
+                                    .padding(4)
+                                    .background(Color(nsColor: .controlBackgroundColor))
+                                    .cornerRadius(4)
+                                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(nsColor: .separatorColor)))
+                                    .onSubmit {
+                                        if let val = UInt8(customHexString, radix: 16) {
+                                            appState.updateMonitorInputSource(val)
+                                        }
+                                    }
+                                    .onChange(of: customHexString) { _, newValue in
+                                        let filtered = String(newValue.uppercased().filter { "0123456789ABCDEF".contains($0) }.prefix(3))
+                                        if filtered != customHexString {
+                                            customHexString = filtered
+                                        }
+                                        if let val = UInt8(filtered, radix: 16) {
+                                            appState.updateMonitorInputSource(val)
+                                        }
+                                    }
+                            }
                         }
                     }
 
-                    if isCustomInput || !isKnownInput {
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            Text("Custom input value:  0x")
-                                .foregroundColor(.secondary)
-                            TextField("", text: $customHexString)
-                                .frame(width: 20)
-                                .padding(4)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .cornerRadius(4)
-                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(nsColor: .separatorColor)))
-                                .onSubmit {
-                                    if let val = UInt8(customHexString, radix: 16) {
-                                        appState.updateMonitorInputSource(val)
+                    if appState.switchMode == "disconnect" || appState.switchMode == "both" {
+                        HStack {
+                            Text("Input on disconnect:")
+                            let customSentinel: Int16 = -1
+                            Picker("", selection: Binding<Int16>(
+                                get: {
+                                    if isCustomDisconnectInput || !isKnownDisconnectInput {
+                                        return customSentinel
+                                    }
+                                    return Int16(appState.disconnectInputSource)
+                                },
+                                set: { newValue in
+                                    if newValue == customSentinel {
+                                        isCustomDisconnectInput = true
+                                        customDisconnectHexString = String(format: "%02X", appState.disconnectInputSource)
+                                    } else {
+                                        isCustomDisconnectInput = false
+                                        appState.updateDisconnectInputSource(UInt8(newValue))
                                     }
                                 }
-                                .onChange(of: customHexString) { _, newValue in
-                                    let filtered = String(newValue.uppercased().filter { "0123456789ABCDEF".contains($0) }.prefix(3))
-                                    if filtered != customHexString {
-                                        customHexString = filtered
-                                    }
-                                    if let val = UInt8(filtered, radix: 16) {
-                                        appState.updateMonitorInputSource(val)
-                                    }
+                            )) {
+                                ForEach(DDCService.sortedInputs, id: \.value) { input in
+                                    Text("\(input.name)  (0x\(String(format: "%02X", input.value)))")
+                                        .tag(Int16(input.value))
                                 }
+                                Divider()
+                                Text("Custom…").tag(customSentinel)
+                            }
+                            .frame(width: 207)
+                        }
+                        .onAppear {
+                            if !isKnownDisconnectInput {
+                                isCustomDisconnectInput = true
+                                customDisconnectHexString = String(format: "%02X", appState.disconnectInputSource)
+                            }
+                        }
+
+                        if isCustomDisconnectInput || !isKnownDisconnectInput {
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text("Custom disconnect input:  0x")
+                                    .foregroundColor(.secondary)
+                                TextField("", text: $customDisconnectHexString)
+                                    .frame(width: 20)
+                                    .padding(4)
+                                    .background(Color(nsColor: .controlBackgroundColor))
+                                    .cornerRadius(4)
+                                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(nsColor: .separatorColor)))
+                                    .onSubmit {
+                                        if let val = UInt8(customDisconnectHexString, radix: 16) {
+                                            appState.updateDisconnectInputSource(val)
+                                        }
+                                    }
+                                    .onChange(of: customDisconnectHexString) { _, newValue in
+                                        let filtered = String(newValue.uppercased().filter { "0123456789ABCDEF".contains($0) }.prefix(3))
+                                        if filtered != customDisconnectHexString {
+                                            customDisconnectHexString = filtered
+                                        }
+                                        if let val = UInt8(filtered, radix: 16) {
+                                            appState.updateDisconnectInputSource(val)
+                                        }
+                                    }
+                            }
                         }
                     }
 
@@ -217,9 +302,18 @@ struct GeneralSettingsView: View {
                             .environmentObject(appState)
                     }
 
-                    Text("Select the input your Mac is connected to, or press Detect to read it from the monitor. When your USB device connects, the monitor will automatically switch to this input.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Group {
+                        switch appState.switchMode {
+                        case "disconnect":
+                            Text("When your USB device disconnects, the monitor will switch to the disconnect input.")
+                        case "both":
+                            Text("When your USB device connects, the monitor switches to the connect input. When it disconnects, it switches to the disconnect input.")
+                        default:
+                            Text("When your USB device connects, the monitor will automatically switch to the connect input.")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 }
             }
         }
@@ -532,7 +626,7 @@ struct AboutView: View {
                     .font(.largeTitle)
                     .fontWeight(.bold)
                 
-                Text("Version 2.2")
+                Text("Version 2.3")
                     .font(.headline)
                     .foregroundColor(.secondary)
                 

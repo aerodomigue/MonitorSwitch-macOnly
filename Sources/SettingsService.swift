@@ -13,6 +13,8 @@ struct AppSettings: Codable {
     var startMinimized: Bool = false
     var monitorInputSource: UInt8 = 0x0F  // Default: DisplayPort-1
     var selectedMonitorID: String = ""    // Empty = auto (first found)
+    var switchMode: String = "connect"       // "connect", "disconnect", "both"
+    var disconnectInputSource: UInt8 = 0x11  // Default: HDMI-1
 
     static let `default` = AppSettings()
 }
@@ -41,6 +43,14 @@ class SettingsService: ObservableObject {
         didSet { saveSettings() }
     }
 
+    @Published var switchMode: String = "connect" {
+        didSet { saveSettings() }
+    }
+
+    @Published var disconnectInputSource: UInt8 = 0x11 {
+        didSet { saveSettings() }
+    }
+
     init() {
         _ = loadSettings()
     }
@@ -59,6 +69,8 @@ class SettingsService: ObservableObject {
         startMinimized = settings.startMinimized
         monitorInputSource = settings.monitorInputSource
         selectedMonitorID = settings.selectedMonitorID
+        switchMode = settings.switchMode
+        disconnectInputSource = settings.disconnectInputSource
 
         return settings
     }
@@ -69,7 +81,9 @@ class SettingsService: ObservableObject {
             autoStartEnabled: autoStartEnabled,
             startMinimized: startMinimized,
             monitorInputSource: monitorInputSource,
-            selectedMonitorID: selectedMonitorID
+            selectedMonitorID: selectedMonitorID,
+            switchMode: switchMode,
+            disconnectInputSource: disconnectInputSource
         )
         saveSettings(settings)
     }
@@ -91,6 +105,8 @@ class SettingsService: ObservableObject {
         startMinimized = defaultSettings.startMinimized
         monitorInputSource = defaultSettings.monitorInputSource
         selectedMonitorID = defaultSettings.selectedMonitorID
+        switchMode = defaultSettings.switchMode
+        disconnectInputSource = defaultSettings.disconnectInputSource
 
         saveSettings(defaultSettings)
     }
