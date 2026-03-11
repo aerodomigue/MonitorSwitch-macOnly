@@ -11,12 +11,11 @@ import Cocoa
 @main
 struct MonitorSwitchUIApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var appState = AppState()
-    
+
     var body: some Scene {
         Settings {
             SettingsView()
-                .environmentObject(appState)
+                .environmentObject(appDelegate.appState)
         }
     }
 }
@@ -25,7 +24,7 @@ struct MonitorSwitchUIApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
-    private var appState = AppState()
+    private(set) var appState = AppState()
     private var windowManager = WindowManager()
     private var eventMonitor: Any?
     
