@@ -61,7 +61,7 @@ final class DDCService: Sendable {
         return services.compactMap { match in
             guard let service = match.service else { return nil }
             let id = "\(match.productName):\(match.location)"
-            print("DDCService: found monitor — \(match.productName) at location \(match.location)")
+            LogService.shared.log("DDCService: found monitor — \(match.productName) at location \(match.location)")
             return ExternalMonitor(id: id, name: match.productName, service: service)
         }
     }
@@ -70,7 +70,7 @@ final class DDCService: Sendable {
     private func findExternalService(monitorID: String? = nil) -> IOAVService? {
         let monitors = listExternalMonitors()
         guard !monitors.isEmpty else {
-            print("DDCService: no IOAVService found via AppleSiliconDDC")
+            LogService.shared.log("DDCService: no IOAVService found via AppleSiliconDDC")
             return nil
         }
 
@@ -78,7 +78,7 @@ final class DDCService: Sendable {
         if let monitorID, !monitorID.isEmpty {
             match = monitors.first(where: { $0.id == monitorID })
             if match == nil {
-                print("DDCService: monitor '\(monitorID)' not found, aborting")
+                LogService.shared.log("DDCService: monitor '\(monitorID)' not found, aborting")
                 return nil
             }
         } else {
@@ -86,18 +86,18 @@ final class DDCService: Sendable {
         }
 
         guard let match else { return nil }
-        print("DDCService: using monitor — \(match.name) (id: \(match.id))")
+        LogService.shared.log("DDCService: using monitor — \(match.name) (id: \(match.id))")
         return match.service
     }
     #endif
 
     /// Switch the monitor to the specified input source via DDC-CI Set VCP 0x60
     func switchInput(to input: UInt8, monitorID: String? = nil) -> Bool {
-        print("DDCService: switching to input \(DDCService.inputName(for: input)) (0x\(String(input, radix: 16)))")
+        LogService.shared.log("DDCService: switching to input \(DDCService.inputName(for: input)) (0x\(String(input, radix: 16)))")
 
         #if arch(arm64)
         guard let service = findExternalService(monitorID: monitorID) else {
-            print("DDCService: input switch failed — no service")
+            LogService.shared.log("DDCService: input switch failed — no service")
             return false
         }
         let success = AppleSiliconDDC.write(service: service, command: kVCPInputSource, value: UInt16(input))
@@ -106,9 +106,9 @@ final class DDCService: Sendable {
         #endif
 
         if success {
-            print("DDCService: input switch successful")
+            LogService.shared.log("DDCService: input switch successful")
         } else {
-            print("DDCService: input switch failed")
+            LogService.shared.log("DDCService: input switch failed")
         }
         return success
     }
@@ -116,27 +116,27 @@ final class DDCService: Sendable {
     /// Read the current input source via DDC-CI Get VCP 0x60.
     /// Note: some monitors (e.g. LG UltraGear) support DDC writes but not reads.
     func readCurrentInput(monitorID: String? = nil) -> UInt8? {
-        print("DDCService: reading current input...")
+        LogService.shared.log("DDCService: reading current input...")
 
         #if arch(arm64)
         guard let service = findExternalService(monitorID: monitorID) else {
-            print("DDCService: failed to read — no service")
+            LogService.shared.log("DDCService: failed to read — no service")
             return nil
         }
         guard let result = AppleSiliconDDC.read(service: service, command: kVCPInputSource, readSleepTime: 100_000, numOfRetryAttemps: 9) else {
-            print("DDCService: failed to read current input (monitor may not support DDC reads)")
+            LogService.shared.log("DDCService: failed to read current input (monitor may not support DDC reads)")
             return nil
         }
         let currentValue = UInt8(result.current & 0xFF)
-        print("DDCService: current input = \(DDCService.inputName(for: currentValue)) (0x\(String(currentValue, radix: 16)))")
+        LogService.shared.log("DDCService: current input = \(DDCService.inputName(for: currentValue)) (0x\(String(currentValue, radix: 16)))")
         return currentValue
         #else
         let result = ddc_i2c_read(kVCPInputSource)
         if result.success {
-            print("DDCService: current input = \(DDCService.inputName(for: result.currentValue)) (0x\(String(result.currentValue, radix: 16)))")
+            LogService.shared.log("DDCService: current input = \(DDCService.inputName(for: result.currentValue)) (0x\(String(result.currentValue, radix: 16)))")
             return result.currentValue
         } else {
-            print("DDCService: failed to read current input")
+            LogService.shared.log("DDCService: failed to read current input")
             return nil
         }
         #endif

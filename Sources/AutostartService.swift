@@ -19,13 +19,13 @@ class AutostartService: ObservableObject {
             do {
                 if enabled {
                     try service.register()
-                    print("Successfully registered app for autostart")
+                    LogService.shared.log("Successfully registered app for autostart")
                 } else {
                     try service.unregister()
-                    print("Successfully unregistered app from autostart")
+                    LogService.shared.log("Successfully unregistered app from autostart")
                 }
             } catch {
-                print("Failed to \(enabled ? "register" : "unregister") autostart: \(error)")
+                LogService.shared.log("Failed to \(enabled ? "register" : "unregister") autostart: \(error)")
             }
         } else {
             // Fallback for older macOS versions using deprecated API
@@ -70,7 +70,7 @@ class AutostartService: ObservableObject {
     
     private func createLaunchAgentPlist(at url: URL) {
         guard let executablePath = Bundle.main.executablePath else {
-            print("Failed to get executable path")
+            LogService.shared.log("Failed to get executable path")
             return
         }
         
@@ -103,9 +103,9 @@ class AutostartService: ObservableObject {
             
             // Write the plist file
             try plistContent.write(to: url, atomically: true, encoding: .utf8)
-            print("Successfully created launch agent plist at: \(url.path)")
+            LogService.shared.log("Successfully created launch agent plist at: \(url.path)")
         } catch {
-            print("Failed to create launch agent plist: \(error)")
+            LogService.shared.log("Failed to create launch agent plist: \(error)")
         }
     }
 }

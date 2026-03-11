@@ -94,7 +94,7 @@ class WindowManager: NSObject, ObservableObject {
         if !isDockVisible {
             NSApp.setActivationPolicy(.regular)
             isDockVisible = true
-            print("App now visible in dock")
+            LogService.shared.log("App now visible in dock")
         }
     }
     
@@ -102,7 +102,7 @@ class WindowManager: NSObject, ObservableObject {
         if isDockVisible {
             NSApp.setActivationPolicy(.accessory)
             isDockVisible = false
-            print("App hidden from dock")
+            LogService.shared.log("App hidden from dock")
         }
     }
 }
@@ -113,7 +113,7 @@ extension WindowManager: NSWindowDelegate {
         if notification.object as? NSWindow == settingsWindow {
             settingsWindow = nil
             hideFromDock()
-            print("Settings window closed, app hidden from dock")
+            LogService.shared.log("Settings window closed, app hidden from dock")
         }
     }
 

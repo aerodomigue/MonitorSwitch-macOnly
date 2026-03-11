@@ -49,6 +49,12 @@ struct SettingsView: View {
                     }
                     .tag(SettingsTab.devices)
                 
+                LogView()
+                    .tabItem {
+                        Label("Log", systemImage: "text.justify.left")
+                    }
+                    .tag(SettingsTab.log)
+
                 AboutView()
                     .tabItem {
                         Label("About", systemImage: "info.circle")
@@ -63,6 +69,7 @@ struct SettingsView: View {
 enum SettingsTab: CaseIterable {
     case general
     case devices
+    case log
     case about
 }
 
@@ -611,6 +618,106 @@ struct DeviceListRowView: View {
                         .stroke(isSelected ? Color.blue.opacity(0.3) : Color.clear, lineWidth: 1)
                 )
         )
+    }
+}
+
+struct LogView: View {
+    @ObservedObject private var logService = LogService.shared
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let crashReport = logService.lastCrashReport {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("A crash was detected in the previous session")
+                        .font(.subheadline)
+                    Spacer()
+                    Button("Copy Report") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(crashReport, forType: .string)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    Button("Open in Editor") {
+                        let path = NSHomeDirectory() + "/Library/Logs/MonitorSwitch/monitor.log"
+                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    Button("Dismiss") {
+                        logService.dismissCrashReport()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                .padding()
+                .background(Color.orange.opacity(0.1))
+                Divider()
+            }
+
+            HStack {
+                Text("\(logService.entries.count) entries")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button("Copy") {
+                    let snapshot = logService.entries
+                    let text = snapshot.map { entry in
+                        "[\(Self.dateFormatter.string(from: entry.date))] \(entry.message)"
+                    }.joined(separator: "\n")
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button("Clear") {
+                    logService.clear()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(logService.entries) { entry in
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(Self.dateFormatter.string(from: entry.date))
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 85, alignment: .leading)
+                                Text(entry.message)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .textSelection(.enabled)
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 2)
+                            .id(entry.id)
+                        }
+                    }
+                }
+                .onChange(of: logService.entries.count) { _, _ in
+                    if let last = logService.entries.last {
+                        withAnimation {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -74,6 +74,7 @@ class AppState: ObservableObject {
     }
 
     func selectDevice(_ device: USBDevice) {
+        LogService.shared.log("Device selected: \(device.displayName) (\(device.stableID))")
         selectedDevice = device
         settingsService.selectedDeviceID = device.stableID
         saveSettings()
@@ -210,6 +211,7 @@ class AppState: ObservableObject {
     }
 
     private func handleDeviceConnected(_ device: USBDevice) {
+        LogService.shared.log("Device connected: \(device.displayName) (\(device.stableID))")
         updateStatusMessage("Device connected: \(device.name)")
 
         if let selectedDevice = selectedDevice,
@@ -219,6 +221,7 @@ class AppState: ObservableObject {
     }
 
     private func handleDeviceDisconnected(_ device: USBDevice) {
+        LogService.shared.log("Device disconnected: \(device.displayName) (\(device.stableID))")
         updateStatusMessage("Device disconnected: \(device.name)")
 
         if let selectedDevice = selectedDevice,
@@ -229,6 +232,7 @@ class AppState: ObservableObject {
 
     private func startMonitoring() {
         isMonitoring = true
+        LogService.shared.log("Start monitoring (mode: \(switchMode), startupReady: \(startupReady))")
         guard startupReady else { return }
         guard switchMode == "connect" || switchMode == "both" else { return }
         let input = monitorInputSource
@@ -247,6 +251,7 @@ class AppState: ObservableObject {
 
     private func stopMonitoring() {
         isMonitoring = false
+        LogService.shared.log("Stop monitoring (mode: \(switchMode), startupReady: \(startupReady))")
         guard startupReady else {
             updateStatusMessage("Device disconnected")
             return
@@ -278,6 +283,7 @@ class AppState: ObservableObject {
     }
 
     private func loadSettings() {
+        LogService.shared.log("Loading settings...")
         let settings = settingsService.loadSettings()
         isAutoStartEnabled = settings.autoStartEnabled
         startMinimized = settings.startMinimized

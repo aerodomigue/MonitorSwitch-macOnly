@@ -59,7 +59,7 @@ class USBService: ObservableObject {
     private func setupIOKitNotifications() {
         // Create notification port
         guard let port = IONotificationPortCreate(kIOMainPortDefault) else {
-            print("USBService: Failed to create notification port")
+            LogService.shared.log("USBService: Failed to create notification port")
             return
         }
         notificationPort = port
@@ -83,7 +83,7 @@ class USBService: ObservableObject {
                 // Drain iterator to arm the notification
                 drainIterator(addedIterator)
             } else {
-                print("USBService: Failed to add device added notification: \(result)")
+                LogService.shared.log("USBService: Failed to add device added notification: \(result)")
             }
         }
 
@@ -102,11 +102,11 @@ class USBService: ObservableObject {
                 // Drain iterator to arm the notification
                 drainIterator(removedIterator)
             } else {
-                print("USBService: Failed to add device removed notification: \(result)")
+                LogService.shared.log("USBService: Failed to add device removed notification: \(result)")
             }
         }
 
-        print("USBService: IOKit notifications active (instant device detection)")
+        LogService.shared.log("USBService: IOKit notifications active (instant device detection)")
     }
 
     private func drainIterator(_ iterator: io_iterator_t) {
@@ -171,7 +171,7 @@ class USBService: ObservableObject {
         var devices: [USBDevice] = []
 
         guard let matchingDict = IOServiceMatching(kIOUSBDeviceClassName) else {
-            print("USBService: Failed to create matching dictionary")
+            LogService.shared.log("USBService: Failed to create matching dictionary")
             return devices
         }
 
@@ -179,7 +179,7 @@ class USBService: ObservableObject {
         let result = IOServiceGetMatchingServices(kIOMainPortDefault, matchingDict, &iterator)
 
         guard result == KERN_SUCCESS else {
-            print("USBService: Failed to get matching services")
+            LogService.shared.log("USBService: Failed to get matching services")
             return devices
         }
 

@@ -90,7 +90,7 @@ class SettingsService: ObservableObject {
 
     private func saveSettings(_ settings: AppSettings) {
         guard let data = try? JSONEncoder().encode(settings) else {
-            print("Failed to encode settings")
+            LogService.shared.log("Failed to encode settings")
             return
         }
 
