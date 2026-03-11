@@ -1,103 +1,63 @@
-# MonitorSwitch SwiftUI
+# MonitorSwitch
 
-A SwiftUI version of MonitorSwitch for macOS that automatically controls your monitor based on USB device connections.
-This app is a refactor of my previous app: https://github.com/aerodomigue/MonitorSwitch
+A native macOS menu bar app that automatically switches monitor inputs (DDC-CI) when a USB device connects or disconnects. Ideal for KVM switch setups.
 
 ## Features
 
-- **Menu Bar App**: Runs quietly in your menu bar with quick access to controls
-- **USB Device Monitoring**: Automatically detects USB device connections and disconnections
-- **Smart Display Control**: Turns your monitor on/off based on selected device state
-- **Customizable Settings**: Configure autostart, screen off delay, and startup behavior
-- **Native macOS Integration**: Built with SwiftUI for modern macOS experience
+- **DDC-CI Input Switching** — Automatically change your monitor's input source via DDC-CI
+- **Switch Modes** — Trigger on connect, disconnect, or both directions
+- **Multi-Monitor Support** — Select which external monitor to control
+- **Input Scanner** — Cycle through all inputs to find the right one
+- **Instant USB Detection** — IOKit notifications for immediate response
+- **Built-in Logging** — Real-time log viewer with disk persistence and crash detection
+- **DDC Safety** — Serial queue with 5s timeout prevents I2C bus conflicts
+- **Menu Bar App** — Runs quietly in your menu bar, no dock icon
+- **Login Launch** — Optional auto-start at login
 
 ## Requirements
 
-- macOS 14.0 or later
-- Swift 6.0 or later
+- macOS 14.0+
+- Apple Silicon (DDC-CI uses IOAVService, arm64 only)
+- Swift 6.0+ (for building from source)
 
-## Building
+## Install
 
 ```bash
+git clone https://github.com/aerodomigue/MonitorSwitch-macOnly.git
+cd MonitorSwitch-macOnly
 ./build.sh
+cp -r .build/release/MonitorSwitch.app /Applications/
 ```
 
-The built app will be available in `.build/release/MonitorSwitch.app`
-
-## Installation
-
-1. Copy the built app to your Applications folder:
-   ```bash
-   cp -r .build/release/MonitorSwitch.app /Applications/
-   ```
-
-2. Remove quarantine attribute (required for apps downloaded from GitHub):
-   ```bash
-   xattr -cr /Applications/MonitorSwitch.app
-   ```
-
-3. Launch the app and grant necessary permissions when prompted:
-   - **USB Device Access**: Required to monitor USB connections
-   - **Display Control**: Required to turn monitor on/off
-   - **Accessibility**: May be required for some display control features
+Since the app is unsigned, remove quarantine before launching:
+```bash
+xattr -cr /Applications/MonitorSwitch.app
+```
 
 ## Usage
 
-1. **First Launch**: The app will appear in your menu bar with a display icon
-2. **Select Device**: Click the menu bar icon and choose "Manage Devices" to select which USB device to monitor
-3. **Configure Settings**: Access settings through the menu bar or use the Settings window
-4. **Automatic Operation**: Once configured, the app will automatically:
-   - Turn your monitor ON when the selected device connects
-   - Turn your monitor OFF (after delay) when the selected device disconnects
-
-## Configuration
-
-The app stores settings using macOS UserDefaults. You can configure:
-
-- **Selected USB Device**: Choose which device triggers monitor control
-- **Autostart**: Launch automatically at login
-- **Start Minimized**: Start without showing device selection window
-- **Screen Off Delay**: Time to wait before turning off monitor (1-60 seconds)
+1. Launch the app — it appears in your menu bar
+2. Click the menu bar icon to open the popover
+3. Open **Settings** to configure:
+   - **Device** — Select which USB device triggers input switching
+   - **Monitor** — Pick the external monitor to control
+   - **Input source** — Choose the DDC input (HDMI-1, DisplayPort-1, etc.) or use **Detect** / **Scan**
+   - **Switch mode** — Connect only, disconnect only, or both (with separate inputs per direction)
+4. Plug/unplug your USB device — the monitor input switches automatically
 
 ## Architecture
 
-The SwiftUI app is built with a clean architecture:
-
-- **AppState**: Central state management with Combine publishers
-- **Services**: Separate services for USB monitoring, display control, settings, and autostart
-- **Views**: SwiftUI views for menu bar, device selection, and settings
-- **Models**: Data models for USB devices and app configuration
-
-## Key Services
-
-- **USBService**: Monitors USB device connections using IOKit
-- **DisplayService**: Controls monitor power using Core Graphics and IOKit
-- **SettingsService**: Manages app configuration persistence
-- **AutostartService**: Handles launch agent registration for autostart
-
-## Permissions
-
-The app requires the following permissions:
-- USB device access (automatically granted)
-- Display control (may require manual approval in System Preferences)
-- Background app refresh (for monitoring while minimized)
-
-## Troubleshooting
-
-- **Monitor not turning off/on**: Check System Preferences > Security & Privacy > Privacy tab for accessibility permissions
-- **USB devices not detected**: Ensure devices are properly connected and try refreshing the device list
-- **Autostart not working**: Check System Preferences > Users & Groups > Login Items
-
-## Differences from Qt Version
-
-This SwiftUI version offers:
-- Native macOS look and feel
-- Better system integration
-- Modern Swift/SwiftUI architecture
-- Improved menu bar experience
-- More robust USB device detection
-- Better permission handling
+```
+MonitorSwitchUIApp (entry point)
+  → AppDelegate (menu bar setup)
+    → AppState (central state container)
+        ├── USBService     — IOKit notifications for USB device events
+        ├── DDCService     — DDC-CI I2C commands (switchInput, readInput)
+        ├── SettingsService — UserDefaults JSON persistence
+        ├── AutostartService — SMAppService for login launch
+        └── LogService     — Disk-persisted logging with crash detection
+```
 
 ## License
 
-Same license as the original MonitorSwitch project.
+Same license as the original [MonitorSwitch](https://github.com/aerodomigue/MonitorSwitch) project.
