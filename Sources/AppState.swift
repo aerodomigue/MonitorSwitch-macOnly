@@ -35,6 +35,8 @@ class AppState: ObservableObject {
     private let autostartService = AutostartService()
 
     private var startupReady = false
+    private var preSleepMonitoringState: Bool?
+    private var awakeReady = true
     private var cancellables = Set<AnyCancellable>()
     private var lastDDCTask: Task<Void, Never>?
 
@@ -72,6 +74,56 @@ class AppState: ObservableObject {
                 self?.handleDeviceDisconnected(device)
             }
             .store(in: &cancellables)
+
+        subscribeSleepWakeNotifications()
+    }
+
+    private func subscribeSleepWakeNotifications() {
+        NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.willSleepNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.handleWillSleep()
+            }
+            .store(in: &cancellables)
+
+        NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.didWakeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.handleDidWake()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func handleWillSleep() {
+        preSleepMonitoringState = isMonitoring
+        awakeReady = false
+        LogService.shared.log("System will sleep (isMonitoring: \(isMonitoring))")
+    }
+
+    private func handleDidWake() {
+        LogService.shared.log("System did wake (preSleepMonitoringState: \(String(describing: preSleepMonitoringState)))")
+        let savedState = preSleepMonitoringState
+        preSleepMonitoringState = nil
+
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            awakeReady = true
+            LogService.shared.log("Wake stabilization complete (isMonitoring: \(isMonitoring), savedState: \(String(describing: savedState)))")
+
+            guard let savedState else { return }
+            if isMonitoring != savedState {
+                LogService.shared.log("State changed during sleep, triggering switch")
+                if isMonitoring {
+                    startMonitoring()
+                } else {
+                    stopMonitoring()
+                }
+            } else {
+                LogService.shared.log("State unchanged during sleep, no switch needed")
+            }
+        }
     }
 
     func selectDevice(_ device: USBDevice) {
@@ -253,8 +305,8 @@ class AppState: ObservableObject {
 
     private func startMonitoring() {
         isMonitoring = true
-        LogService.shared.log("Start monitoring (mode: \(switchMode), startupReady: \(startupReady))")
-        guard startupReady else { return }
+        LogService.shared.log("Start monitoring (mode: \(switchMode), startupReady: \(startupReady), awakeReady: \(awakeReady))")
+        guard startupReady, awakeReady else { return }
         guard switchMode == "connect" || switchMode == "both" else { return }
         let input = monitorInputSource
         let monitorID = selectedMonitorID.isEmpty ? nil : selectedMonitorID
@@ -272,8 +324,8 @@ class AppState: ObservableObject {
 
     private func stopMonitoring() {
         isMonitoring = false
-        LogService.shared.log("Stop monitoring (mode: \(switchMode), startupReady: \(startupReady))")
-        guard startupReady else {
+        LogService.shared.log("Stop monitoring (mode: \(switchMode), startupReady: \(startupReady), awakeReady: \(awakeReady))")
+        guard startupReady, awakeReady else {
             updateStatusMessage("Device disconnected")
             return
         }
