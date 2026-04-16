@@ -96,21 +96,39 @@ final class DDCService: Sendable {
         LogService.shared.log("DDCService: switching to input \(DDCService.inputName(for: input)) (0x\(String(input, radix: 16)))")
 
         #if arch(arm64)
-        guard let service = findExternalService(monitorID: monitorID) else {
-            LogService.shared.log("DDCService: input switch failed — no service")
-            return false
+        let maxAttempts = 3
+        let baseDelayMs: UInt32 = 100
+
+        for attempt in 1...maxAttempts {
+            if let service = findExternalService(monitorID: monitorID) {
+                let success = AppleSiliconDDC.write(service: service, command: kVCPInputSource, value: UInt16(input))
+                if success {
+                    LogService.shared.log("DDCService: input switch successful")
+                    return true
+                }
+                LogService.shared.log("DDCService: write failed (attempt \(attempt)/\(maxAttempts))")
+            } else {
+                LogService.shared.log("DDCService: no service found (attempt \(attempt)/\(maxAttempts))")
+            }
+
+            if attempt < maxAttempts {
+                let delayMs = baseDelayMs * UInt32(pow(4.0, Double(attempt - 1)))
+                LogService.shared.log("DDCService: retrying in \(delayMs)ms...")
+                usleep(UInt32(delayMs) * 1000)
+            }
         }
-        let success = AppleSiliconDDC.write(service: service, command: kVCPInputSource, value: UInt16(input))
+
+        LogService.shared.log("DDCService: input switch failed after \(maxAttempts) attempts")
+        return false
         #else
         let success = ddc_i2c_write(kVCPInputSource, input)
-        #endif
-
         if success {
             LogService.shared.log("DDCService: input switch successful")
         } else {
             LogService.shared.log("DDCService: input switch failed")
         }
         return success
+        #endif
     }
 
     /// Read the current input source via DDC-CI Get VCP 0x60.
